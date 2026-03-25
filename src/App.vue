@@ -2,6 +2,24 @@
 import { ref, onMounted, reactive, watch, nextTick, computed } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { 
+  Plus, 
+  Trash2, 
+  Settings, 
+  Network, 
+  Users, 
+  Activity, 
+  Copy, 
+  RefreshCw, 
+  Shield, 
+  Zap, 
+  Globe,
+  Cpu,
+  Info,
+  CheckCircle2,
+  XCircle,
+  AlertCircle
+} from "lucide-vue-next";
 
 type ETConfig = {
   network_name: string;
@@ -64,7 +82,6 @@ function loadNetworks(): NetworkProfile[] {
     try {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length) {
-        // 兼容旧数据：如果缺少 label，则使用 network_name
         return parsed.map(n => ({
           ...n,
           label: n.label || n.config.network_name
@@ -90,6 +107,7 @@ function loadNetworks(): NetworkProfile[] {
 
 const networks = ref<NetworkProfile[]>(loadNetworks());
 const selectedId = ref<string>(networks.value[0]?.id || newId());
+const activeTab = ref<'config' | 'peers' | 'logs'>('config');
 
 function selectedProfile(): NetworkProfile {
   let p = networks.value.find(n => n.id === selectedId.value);
@@ -180,6 +198,7 @@ onMounted(async () => {
 });
 
 async function refreshPeers() {
+  if (!isRunning.value && activeTab.value === 'peers') return;
   peersError.value = null;
   peersLoading.value = true;
   try {
@@ -213,25 +232,25 @@ async function copyText(text: string) {
       document.body.removeChild(ta);
     }
 
-    copiedHint.value = `已复制 ${text}`;
+    copiedHint.value = `已复制`;
     setTimeout(() => {
       copiedHint.value = null;
     }, 1200);
   } catch (e) {
-    copiedHint.value = "复制失败";
+    copiedHint.value = "失败";
     setTimeout(() => {
       copiedHint.value = null;
     }, 1200);
   }
 }
 
-watch([selectedId, isRunning], () => {
+watch([selectedId, isRunning, activeTab], () => {
   if (peersTimer) {
     clearInterval(peersTimer);
     peersTimer = null;
   }
-  refreshPeers();
-  if (isRunning.value) {
+  if (isRunning.value && activeTab.value === 'peers') {
+    refreshPeers();
     peersTimer = setInterval(() => {
       refreshPeers();
     }, 5000);
@@ -247,8 +266,12 @@ function addNetwork() {
 function removeNetwork(id: string) {
   if (runningById[id]) return;
   const idx = networks.value.findIndex(n => n.id === id);
-  if (idx >= 0) networks.value.splice(idx, 1);
-  if (selectedId.value === id) selectedId.value = networks.value[0]?.id || "";
+  if (idx >= 0) {
+    networks.value.splice(idx, 1);
+    if (selectedId.value === id) {
+      selectedId.value = networks.value[0]?.id || "";
+    }
+  }
 }
 
 async function toggle() {
@@ -273,231 +296,1016 @@ async function toggle() {
     }
   }
 }
+
+function getLatencyColor(ms: number | null | undefined) {
+  if (ms === null || ms === undefined) return 'text-gray-400';
+  if (ms < 50) return 'text-emerald-500';
+  if (ms < 150) return 'text-amber-500';
+  return 'text-rose-500';
+}
+
 const vFocus = {
   mounted: (el: HTMLElement) => el.focus()
 };
 </script>
 
 <template>
-  <div class="phantom-ui">
-    <header>
-      <div class="logo">PHANTOM<span>WIRE</span></div>
-      <div class="status" :class="{ running: isRunning }">
-        {{ isRunning ? '已接入' : '离线' }}
-      </div>
-    </header>
-
-    <div class="networks">
-      <div class="networks-head">
-        <div class="networks-title">虚拟网络</div>
-        <button class="net-btn" @click="addNetwork">新增</button>
-      </div>
-      <div class="net-list">
-        <div
-          v-for="n in networks"
-          :key="n.id"
-          class="net-item"
-          :class="{ active: n.id === selectedId, running: !!runningById[n.id] }"
-          @click="selectedId = n.id"
-        >
-          <input
-            v-if="editingId === n.id"
-            v-model="n.label"
-            class="net-edit-input"
-            @blur="finishEdit"
-            @keyup.enter="finishEdit"
-            v-focus
-          />
-          <span v-else class="net-name" @dblclick="startEdit(n.id)">{{ n.label }}</span>
-          <button class="net-del" @click.stop="removeNetwork(n.id)" :disabled="!!runningById[n.id]">×</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="form">
-      <div class="row">
-        <div class="cell">
-          <label>网络名称 (Easytier Name)</label>
-          <input v-model="selectedProfile().config.network_name" :disabled="isRunning" />
-        </div>
-        <div class="cell">
-          <label>网络密码</label>
-          <input v-model="selectedProfile().config.network_secret" type="password" :disabled="isRunning" />
+  <div class="phantom-app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <Globe class="logo-icon" />
+          <span>PHANTOM<b>WIRE</b></span>
         </div>
       </div>
 
-      <div class="row">
-        <div class="cell">
-          <label>IP 模式</label>
-          <button @click="selectedProfile().config.use_dhcp = !selectedProfile().config.use_dhcp" class="mode-btn" :disabled="isRunning">
-            {{ selectedProfile().config.use_dhcp ? 'DHCP (自动获取)' : '静态 IPv4' }}
-          </button>
-        </div>
-        <div class="cell">
-          <label>指定 IP</label>
-          <input v-model="selectedProfile().config.ipv4" :disabled="isRunning || selectedProfile().config.use_dhcp" placeholder="10.x.x.x" />
-        </div>
-      </div>
-
-      <div class="row full">
-        <label>节点服务器 (Peer URL)</label>
-        <input v-model="selectedProfile().config.peer_url" :disabled="isRunning" />
-      </div>
-
-      <div class="row full">
-        <label>设备主机名</label>
-        <input v-model="selectedProfile().config.hostname" :disabled="isRunning" />
-      </div>
-
-      <div class="switches">
-        <div class="sw-item" v-for="tag in ['is_private', 'latency_first', 'magic_dns']" :key="tag">
-          <input type="checkbox" v-model="(selectedProfile().config as any)[tag]" :disabled="isRunning" :id="tag" />
-          <label :for="tag">{{ ({ is_private: '启用私有模式', latency_first: '开启延迟优先模式', magic_dns: '启用魔法DNS' } as any)[tag] }}</label>
-        </div>
-      </div>
-
-      <button @click="toggle" class="main-btn" :class="{ 'btn-stop': isRunning }">
-        {{ isRunning ? '断开幻影网络' : '开启幻影连接' }}
-      </button>
-    </div>
-
-    <!-- <div class="console-wrap">
-      <div class="console-toolbar">
-        <button class="console-btn" @click="clearLogs">清空日志</button>
-      </div>
-      <div ref="logsBox" class="console">
-        <div v-for="(l, i) in currentLogs()" :key="i" class="line">{{ l }}</div>
-      </div>
-    </div> -->
-
-    <div class="peers">
-      <div class="peers-head">
-        <div class="peers-title">组网节点</div>
-        <div class="peers-actions">
-          <div v-if="copiedHint" class="copy-hint">{{ copiedHint }}</div>
-          <button class="peer-btn" @click="refreshPeers" :disabled="peersLoading">{{ peersLoading ? '刷新中' : '刷新' }}</button>
-        </div>
-      </div>
-
-      <div v-if="peersError" class="peer-error">{{ peersError }}</div>
-      <div class="peer-table">
-        <div class="peer-row peer-row-head">
-          <div>主机名</div>
-          <div>IPv4</div>
-          <div>连接方式</div>
-          <div>延迟</div>
-        </div>
-
-        <div v-if="!peersLoading && peers.length === 0" class="peer-empty">暂无节点</div>
-        <div v-for="(p, idx) in displayPeers" :key="`${p.hostname || ''}_${p.ipv4 || ''}_${idx}`" class="peer-item">
-          <div class="peer-row peer-row-main" :class="{ 'peer-row-local': isLocalPeer(p) }" @click="togglePeerDetails(idx)">
-            <div class="peer-host">{{ p.hostname || '-' }}</div>
-            <div class="peer-ip">
-              <span
-                class="peer-ip-text"
-                :class="{ 'peer-ip-clickable': !!p.ipv4 }"
-                @click.stop="p.ipv4 && copyText(p.ipv4)"
-              >
-                {{ p.ipv4 || '-' }}
-              </span>
+      <div class="sidebar-content">
+        <div class="section-label">虚拟网络</div>
+        <div class="network-list">
+          <div
+            v-for="n in networks"
+            :key="n.id"
+            class="network-item"
+            :class="{ active: n.id === selectedId, running: !!runningById[n.id] }"
+            @click="selectedId = n.id"
+          >
+            <div class="network-info">
+              <Activity v-if="!!runningById[n.id]" class="status-icon pulse" />
+              <Network v-else class="status-icon" />
+              
+              <input
+                v-if="editingId === n.id"
+                v-model="n.label"
+                class="name-input"
+                @blur="finishEdit"
+                @keyup.enter="finishEdit"
+                v-focus
+              />
+              <span v-else class="name" @dblclick="startEdit(n.id)">{{ n.label }}</span>
             </div>
-            <div class="peer-cost">{{ p.cost || '-' }}</div>
-            <div class="peer-lat">{{ typeof p.latency_ms === 'number' ? `${Math.round(p.latency_ms)}ms` : '-' }}</div>
+            
+            <button 
+              class="delete-btn" 
+              @click.stop="removeNetwork(n.id)" 
+              :disabled="!!runningById[n.id]"
+              v-if="networks.length > 1"
+            >
+              <Trash2 :size="14" />
+            </button>
+          </div>
+        </div>
+
+        <button class="add-network-btn" @click="addNetwork">
+          <Plus :size="16" />
+          <span>新增虚拟网络</span>
+        </button>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="app-info">
+          <Info :size="14" />
+          <span>v0.1.0</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-container">
+      <header class="content-header">
+        <div class="header-left">
+          <h1>{{ selectedProfile().label }}</h1>
+          <div class="status-badge" :class="{ running: isRunning }">
+            <CheckCircle2 v-if="isRunning" :size="14" />
+            <XCircle v-else :size="14" />
+            {{ isRunning ? '在线' : '离线' }}
+          </div>
+        </div>
+
+        <nav class="content-tabs">
+          <button 
+            :class="{ active: activeTab === 'config' }" 
+            @click="activeTab = 'config'"
+          >
+            <Settings :size="16" />
+            配置
+          </button>
+          <button 
+            :class="{ active: activeTab === 'peers' }" 
+            @click="activeTab = 'peers'"
+          >
+            <Users :size="16" />
+            节点
+          </button>
+          <button 
+            :class="{ active: activeTab === 'logs' }" 
+            @click="activeTab = 'logs'"
+          >
+            <Activity :size="16" />
+            日志
+          </button>
+        </nav>
+      </header>
+
+      <div class="content-body">
+        <!-- Config Tab -->
+        <div v-if="activeTab === 'config'" class="tab-pane config-pane">
+          <section class="config-section">
+            <h3>基础设置</h3>
+            <div class="config-grid">
+              <div class="form-group">
+                <label>网络名称</label>
+                <div class="input-wrapper">
+                  <input v-model="selectedProfile().config.network_name" :disabled="isRunning" placeholder="例如: my-net" />
+                </div>
+              </div>
+              <div class="form-group">
+                <label>访问密码</label>
+                <div class="input-wrapper">
+                  <input v-model="selectedProfile().config.network_secret" type="password" :disabled="isRunning" placeholder="留空则不加密" />
+                </div>
+              </div>
+              <div class="form-group full">
+                <label>节点服务器 (Peer URL)</label>
+                <div class="input-wrapper">
+                  <Globe class="field-icon" :size="16" />
+                  <input v-model="selectedProfile().config.peer_url" :disabled="isRunning" placeholder="tcp://host:port" />
+                </div>
+              </div>
+              <div class="form-group full">
+                <label>设备主机名</label>
+                <div class="input-wrapper">
+                  <Cpu class="field-icon" :size="16" />
+                  <input v-model="selectedProfile().config.hostname" :disabled="isRunning" placeholder="默认使用系统主机名" />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="config-section">
+            <h3>网络配置</h3>
+            <div class="config-grid">
+              <div class="form-group">
+                <label>IP 分配模式</label>
+                <div class="toggle-group">
+                  <button 
+                    :class="{ active: selectedProfile().config.use_dhcp }" 
+                    @click="selectedProfile().config.use_dhcp = true"
+                    :disabled="isRunning"
+                  >DHCP</button>
+                  <button 
+                    :class="{ active: !selectedProfile().config.use_dhcp }" 
+                    @click="selectedProfile().config.use_dhcp = false"
+                    :disabled="isRunning"
+                  >静态 IP</button>
+                </div>
+              </div>
+              <div class="form-group" v-if="!selectedProfile().config.use_dhcp">
+                <label>IPv4 地址</label>
+                <div class="input-wrapper">
+                  <input v-model="selectedProfile().config.ipv4" :disabled="isRunning" placeholder="10.126.x.x" />
+                </div>
+              </div>
+            </div>
+            
+            <div class="switches-grid">
+              <label class="switch-card" :class="{ disabled: isRunning }">
+                <div class="switch-info">
+                  <Shield :size="18" />
+                  <div>
+                    <div class="switch-title">私有模式</div>
+                    <div class="switch-desc">不响应其他节点的公共发现</div>
+                  </div>
+                </div>
+                <input type="checkbox" v-model="selectedProfile().config.is_private" :disabled="isRunning" />
+              </label>
+
+              <label class="switch-card" :class="{ disabled: isRunning }">
+                <div class="switch-info">
+                  <Zap :size="18" />
+                  <div>
+                    <div class="switch-title">延迟优先</div>
+                    <div class="switch-desc">自动选择延迟最低的路径</div>
+                  </div>
+                </div>
+                <input type="checkbox" v-model="selectedProfile().config.latency_first" :disabled="isRunning" />
+              </label>
+
+              <label class="switch-card" :class="{ disabled: isRunning }">
+                <div class="switch-info">
+                  <Globe :size="18" />
+                  <div>
+                    <div class="switch-title">魔法 DNS</div>
+                    <div class="switch-desc">通过主机名访问组网内设备</div>
+                  </div>
+                </div>
+                <input type="checkbox" v-model="selectedProfile().config.magic_dns" :disabled="isRunning" />
+              </label>
+            </div>
+          </section>
+
+          <div class="action-footer">
+            <button 
+              @click="toggle" 
+              class="connect-btn" 
+              :class="{ 'btn-stop': isRunning }"
+            >
+              <RefreshCw v-if="false" class="spin" :size="18" />
+              <Zap v-else-if="!isRunning" :size="18" />
+              <XCircle v-else :size="18" />
+              {{ isRunning ? '断开幻影网络' : '开启幻影连接' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Peers Tab -->
+        <div v-if="activeTab === 'peers'" class="tab-pane peers-pane">
+          <div class="pane-header">
+            <div class="pane-stats" v-if="peers.length">
+              共 <b>{{ peers.length }}</b> 个活跃节点
+            </div>
+            <div class="pane-actions">
+              <span v-if="copiedHint" class="copy-success">{{ copiedHint }}</span>
+              <button class="icon-btn" @click="refreshPeers" :disabled="peersLoading || !isRunning">
+                <RefreshCw :class="{ spin: peersLoading }" :size="16" />
+              </button>
+            </div>
           </div>
 
-          <div v-if="expandedPeerIndex === idx" class="peer-details">
-            <div class="peer-detail"><span>网段</span><span>{{ p.cidr || '-' }}</span></div>
-            <div class="peer-detail"><span>隧道</span><span>{{ p.tunnel_proto || '-' }}</span></div>
-            <div class="peer-detail"><span>NAT</span><span>{{ p.nat_type || '-' }}</span></div>
-            <div class="peer-detail"><span>丢包</span><span>{{ p.loss_rate || '-' }}</span></div>
-            <div class="peer-detail"><span>接收</span><span>{{ p.rx_bytes || '-' }}</span></div>
-            <div class="peer-detail"><span>发送</span><span>{{ p.tx_bytes || '-' }}</span></div>
-            <div class="peer-detail"><span>版本</span><span>{{ p.version || '-' }}</span></div>
+          <div v-if="!isRunning" class="empty-state">
+            <AlertCircle :size="48" />
+            <p>请先启动幻影网络以查看节点</p>
+          </div>
+          
+          <div v-else-if="peersError" class="error-state">
+            <AlertCircle :size="32" />
+            <p>{{ peersError }}</p>
+          </div>
+
+          <div v-else-if="peers.length === 0" class="empty-state">
+            <Users :size="48" />
+            <p>暂无其他节点在线</p>
+          </div>
+
+          <div v-else class="peer-list">
+            <div v-for="(p, idx) in displayPeers" :key="idx" class="peer-card">
+              <div class="peer-main" @click="togglePeerDetails(idx)">
+                <div class="peer-info">
+                  <div class="peer-host">
+                    <span class="host-name">{{ p.hostname || 'Unknown' }}</span>
+                    <span v-if="isLocalPeer(p)" class="local-tag">本机</span>
+                  </div>
+                  <div class="peer-ip-wrap" @click.stop="p.ipv4 && copyText(p.ipv4)">
+                    <span class="peer-ip">{{ p.ipv4 || '-' }}</span>
+                    <Copy :size="12" class="copy-icon" />
+                  </div>
+                </div>
+                
+                <div class="peer-meta">
+                  <div class="peer-latency" :class="getLatencyColor(p.latency_ms)">
+                    {{ typeof p.latency_ms === 'number' ? `${Math.round(p.latency_ms)}ms` : '-' }}
+                  </div>
+                  <ChevronRight 
+                    :size="18" 
+                    class="expand-icon" 
+                    :class="{ rotated: expandedPeerIndex === idx }" 
+                  />
+                </div>
+              </div>
+
+              <div v-if="expandedPeerIndex === idx" class="peer-details-grid">
+                <div class="detail-item">
+                  <label>网段</label>
+                  <span>{{ p.cidr || '-' }}</span>
+                </div>
+                <div class="detail-item">
+                  <label>隧道</label>
+                  <span>{{ p.tunnel_proto || '-' }}</span>
+                </div>
+                <div class="detail-item">
+                  <label>NAT 类型</label>
+                  <span>{{ p.nat_type || '-' }}</span>
+                </div>
+                <div class="detail-item">
+                  <label>丢包率</label>
+                  <span>{{ p.loss_rate || '0%' }}</span>
+                </div>
+                <div class="detail-item">
+                  <label>接收流量</label>
+                  <span>{{ p.rx_bytes || '0 B' }}</span>
+                </div>
+                <div class="detail-item">
+                  <label>发送流量</label>
+                  <span>{{ p.tx_bytes || '0 B' }}</span>
+                </div>
+                <div class="detail-item full">
+                  <label>版本信息</label>
+                  <span>{{ p.version || '-' }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Logs Tab -->
+        <div v-if="activeTab === 'logs'" class="tab-pane logs-pane">
+          <div ref="logsBox" class="log-container">
+            <div v-if="!(logsById[selectedId] && logsById[selectedId].length)" class="empty-state">
+              <Activity :size="48" />
+              <p>暂无运行日志</p>
+            </div>
+            <div v-for="(l, i) in logsById[selectedId]" :key="i" class="log-line">
+              <span class="log-time">[{{ new Date().toLocaleTimeString() }}]</span>
+              <span class="log-content">{{ l }}</span>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </main>
   </div>
 </template>
 
 <style>
-:root { color-scheme: light; }
-body { background: #f6f8fa; color: #111827; font-family: 'Segoe UI', system-ui, sans-serif; margin: 0; }
-.phantom-ui { height: 100vh; display: flex; flex-direction: column; padding: 20px; box-sizing: border-box; gap: 15px; }
-header { display: flex; justify-content: space-between; align-items: center; }
-.logo { font-size: 1.5rem; font-weight: 900; letter-spacing: 2px; }
-.logo span { color: #00d2ff; }
-.status { font-size: 12px; padding: 4px 12px; border-radius: 20px; background: #ffffff; color: #6b7280; border: 1px solid #e5e7eb; }
-.status.running { color: #16a34a; background: #dcfce7; border: 1px solid #86efac; }
+:root {
+  --sidebar-width: 260px;
+  --primary: #0ea5e9;
+  --primary-hover: #0284c7;
+  --bg-sidebar: #f8fafc;
+  --bg-main: #ffffff;
+  --border-color: #e2e8f0;
+  --text-main: #0f172a;
+  --text-muted: #64748b;
+  --danger: #ef4444;
+  --success: #10b981;
+}
 
-.form { display: flex; flex-direction: column; gap: 12px; }
-.networks { display: flex; flex-direction: column; gap: 8px; }
-.networks-head { display: flex; justify-content: space-between; align-items: center; }
-.networks-title { font-weight: 700; font-size: 12px; color: #374151; }
-.net-btn { background: #ffffff; border: 1px solid #e5e7eb; padding: 6px 10px; border-radius: 8px; color: #111827; cursor: pointer; font-size: 12px; }
-.net-btn:hover { border-color: #00d2ff; box-shadow: 0 0 0 2px #00d2ff22; }
-.net-list { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px;padding-top: 2px; }
-.net-item { display: flex; align-items: center; gap: 10px; background: #ffffff; border: 1px solid #e5e7eb; padding: 10px 12px; border-radius: 12px; cursor: pointer; min-width: 140px; justify-content: space-between; position: relative; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
-.net-item:hover { border-color: #00d2ff; background: #f0f9ff; }
-.net-item.active { border-color: #00d2ff; background: linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%); box-shadow: 0 4px 12px rgba(0, 210, 255, 0.15); transform: translateY(-1px); }
-.net-item.active .net-name { color: #0088cc; font-weight: 800; }
-.net-item.running { border-color: #16a34a; border-width: 1.5px; }
-.net-item.running.active { border-color: #00d2ff; box-shadow: 0 4px 12px rgba(22, 163, 74, 0.1), 0 0 0 1px #00d2ff; }
-.net-edit-input { border: 1px solid #00d2ff; background: #ffffff; padding: 2px 6px; border-radius: 4px; font-size: 13px; width: 85%; outline: none; box-shadow: 0 0 0 2px rgba(0, 210, 255, 0.1); }
-.net-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: #4b5563; font-weight: 500; }
-.net-del { background: transparent; border: none; color: #9ca3af; cursor: pointer; font-size: 16px; line-height: 1; padding: 0 2px; }
-.net-del:disabled { opacity: 0.4; cursor: not-allowed; }
-.row { display: flex; gap: 12px; }
-.cell { flex: 1; display: flex; flex-direction: column; gap: 4px; }
-.full { flex-direction: column; gap: 4px; }
-label { font-size: 11px; color: #6b7280; font-weight: bold; text-align: left;}
-input { background: #ffffff; border: 1px solid #e5e7eb; padding: 10px; border-radius: 6px; color: #111827; outline: none; transition: 0.2s; }
-input:focus { border-color: #00d2ff; box-shadow: 0 0 0 2px #00d2ff22; }
-input:disabled { opacity: 0.5; cursor: not-allowed; }
-.mode-btn { background: #ffffff; border: 1px solid #e5e7eb; padding: 10px; border-radius: 6px; color: #111827; cursor: pointer; }
-.mode-btn:disabled { opacity: 0.5; }
+* { box-sizing: border-box; }
 
-.switches { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-.sw-item { display: flex; align-items: center; gap: 6px; font-size: 10px; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: var(--text-main);
+  background: var(--bg-main);
+  overflow: hidden;
+  user-select: none;
+}
 
-.main-btn { background: #00d2ff; color: #0b1220; border: none; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; margin-top: 5px; }
-.main-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px #00d2ff44; }
-.main-btn.btn-stop { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; }
+.phantom-app {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+}
 
-.console-wrap { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.console-toolbar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
-.console-btn { background: #ffffff; border: 1px solid #e5e7eb; padding: 6px 10px; border-radius: 8px; color: #111827; cursor: pointer; font-size: 12px; }
-.console-btn:hover { border-color: #00d2ff; box-shadow: 0 0 0 2px #00d2ff22; }
+/* Sidebar Styles */
+.sidebar {
+  width: var(--sidebar-width);
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+}
 
-.console { flex: 1; background: #ffffff; border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px; font-family: 'Consolas', monospace; font-size: 11px; overflow-y: auto; color: #374151; text-align: left;}
-.line { border-bottom: 1px solid #f3f4f6; padding: 2px 0; word-break: break-all; }
+.sidebar-header {
+  padding: 24px 20px;
+}
 
-.peers { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px; }
-.peers-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-.peers-title { font-weight: 700; font-size: 12px; color: #374151; }
-.peers-actions { display: flex; align-items: center; gap: 10px; }
-.copy-hint { font-size: 12px; color: #16a34a; background: #dcfce7; border: 1px solid #86efac; padding: 4px 8px; border-radius: 999px; }
-.peer-btn { background: #ffffff; border: 1px solid #e5e7eb; padding: 6px 10px; border-radius: 8px; color: #111827; cursor: pointer; font-size: 12px; }
-.peer-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-.peer-btn:hover { border-color: #00d2ff; box-shadow: 0 0 0 2px #00d2ff22; }
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  letter-spacing: 0.5px;
+  color: var(--text-main);
+}
 
-.peer-error { color: #dc2626; font-size: 12px; margin-bottom: 8px; word-break: break-all; }
-.peer-table { display: flex; flex-direction: column; gap: 6px; }
-.peer-item { display: flex; flex-direction: column; gap: 6px; }
-.peer-row { display: grid; grid-template-columns: 1fr 1fr 1fr 90px; gap: 10px; padding: 8px 10px; border: 1px solid #f3f4f6; border-radius: 8px; font-size: 12px; color: #111827; }
-.peer-row-local { background: #eff6ff; border-color: #93c5fd; }
-.peer-row-main { cursor: pointer; }
-.peer-row-main:hover { border-color: #00d2ff; box-shadow: 0 0 0 2px #00d2ff22; }
-.peer-row-head { background: #f9fafb; font-weight: 700; color: #374151; }
-.peer-empty { font-size: 12px; color: #6b7280; padding: 8px 2px; }
-.peer-host, .peer-cost, .peer-lat { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.peer-ip { display: flex; align-items: center; min-width: 0; }
-.peer-ip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.peer-ip-clickable { color: #0284c7; font-weight: 700; cursor: pointer; }
-.peer-ip-clickable:hover { text-decoration: underline; }
+.logo-icon {
+  color: var(--primary);
+}
 
-.peer-details { border: 1px solid #f3f4f6; border-radius: 8px; padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; font-size: 12px; color: #374151; }
-.peer-detail { display: flex; justify-content: space-between; gap: 10px; }
-.peer-detail span:first-child { color: #6b7280; }
-.peer-detail span:last-child { color: #111827; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logo span b {
+  color: var(--primary);
+  margin-left: 2px;
+}
+
+.sidebar-content {
+  flex: 1;
+  padding: 0 12px;
+  overflow-y: auto;
+}
+
+.section-label {
+  padding: 0 12px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.05em;
+}
+
+.network-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.network-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+}
+
+.network-item:hover {
+  background: #f1f5f9;
+}
+
+.network-item.active {
+  background: #ffffff;
+  border-color: var(--border-color);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.network-item.active .name {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.network-item.running {
+  background: #f0fdf4;
+}
+
+.network-item.running.active {
+  background: #ffffff;
+  border-color: var(--success);
+}
+
+.network-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.status-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.network-item.running .status-icon {
+  color: var(--success);
+}
+
+.pulse {
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
+}
+
+.name {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.name-input {
+  background: white;
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 14px;
+  width: 100%;
+  outline: none;
+}
+
+.delete-btn {
+  padding: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.network-item:hover .delete-btn {
+  opacity: 1;
+}
+
+.delete-btn:hover {
+  background: #fee2e2;
+  color: var(--danger);
+}
+
+.add-network-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 24px);
+  margin: 12px;
+  padding: 10px;
+  background: transparent;
+  border: 1px dashed var(--border-color);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.add-network-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: #f0f9ff;
+}
+
+.sidebar-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-color);
+}
+
+.app-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* Main Container Styles */
+.main-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-main);
+}
+
+.content-header {
+  padding: 20px 32px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.header-left h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.status-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #f1f5f9;
+  color: var(--text-muted);
+}
+
+.status-badge.running {
+  background: #dcfce7;
+  color: var(--success);
+}
+
+.content-tabs {
+  display: flex;
+  gap: 24px;
+}
+
+.content-tabs button {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 8px 4px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s;
+}
+
+.content-tabs button:hover {
+  color: var(--text-main);
+}
+
+.content-tabs button.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+.content-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px;
+}
+
+.tab-pane {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+/* Config Pane */
+.config-section {
+  margin-bottom: 32px;
+}
+
+.config-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin: 0 0 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.config-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-group.full {
+  grid-column: span 2;
+}
+
+.form-group label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main);
+}
+
+.input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.field-icon {
+  position: absolute;
+  left: 12px;
+  color: var(--text-muted);
+}
+
+.input-wrapper input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.input-wrapper .field-icon + input {
+  padding-left: 36px;
+}
+
+.input-wrapper input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.1);
+}
+
+.input-wrapper input:disabled {
+  background: #f8fafc;
+  cursor: not-allowed;
+}
+
+.toggle-group {
+  display: flex;
+  background: #f1f5f9;
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.toggle-group button {
+  flex: 1;
+  padding: 6px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.toggle-group button.active {
+  background: white;
+  color: var(--primary);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  font-weight: 600;
+}
+
+.switches-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.switch-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  background: #f8fafc;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.switch-card:hover:not(.disabled) {
+  border-color: var(--primary);
+  background: #f0f9ff;
+}
+
+.switch-card.disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.switch-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-muted);
+}
+
+.switch-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.switch-desc {
+  font-size: 11px;
+}
+
+.action-footer {
+  margin-top: 40px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  justify-content: center;
+}
+
+.connect-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 200px;
+  padding: 14px 28px;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 30px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
+}
+
+.connect-btn:hover {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(14, 165, 233, 0.4);
+}
+
+.connect-btn.btn-stop {
+  background: white;
+  color: var(--danger);
+  border: 1px solid #fee2e2;
+  box-shadow: none;
+}
+
+.connect-btn.btn-stop:hover {
+  background: #fff1f1;
+  border-color: #fecaca;
+}
+
+/* Peers Pane */
+.pane-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.pane-stats {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.pane-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.copy-success {
+  font-size: 12px;
+  color: var(--success);
+  background: #ecfdf5;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.icon-btn {
+  padding: 6px;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.icon-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+.empty-state, .error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 0;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.empty-state p { margin-top: 16px; font-size: 15px; }
+
+.peer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.peer-card {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: white;
+  overflow: hidden;
+}
+
+.peer-main {
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.peer-main:hover {
+  background: #f8fafc;
+}
+
+.peer-host {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.host-name {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.local-tag {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: #e0f2fe;
+  color: var(--primary);
+  border-radius: 4px;
+  font-weight: 700;
+}
+
+.peer-ip-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: copy;
+}
+
+.copy-icon { opacity: 0; transition: opacity 0.2s; }
+.peer-ip-wrap:hover .copy-icon { opacity: 1; }
+
+.peer-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.peer-latency {
+  font-family: monospace;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.expand-icon {
+  color: var(--text-muted);
+  transition: transform 0.3s;
+}
+
+.expand-icon.rotated { transform: rotate(90deg); }
+
+.peer-details-grid {
+  padding: 16px 20px;
+  background: #f8fafc;
+  border-top: 1px solid var(--border-color);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.detail-item.full { grid-column: span 3; }
+
+.detail-item label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.detail-item span {
+  font-size: 13px;
+  color: var(--text-main);
+  word-break: break-all;
+}
+
+/* Logs Pane */
+.logs-pane {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.log-container {
+  flex: 1;
+  background: #0f172a;
+  border-radius: 12px;
+  padding: 20px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  overflow-y: auto;
+  color: #e2e8f0;
+}
+
+.log-line {
+  margin-bottom: 4px;
+  display: flex;
+  gap: 12px;
+  line-height: 1.5;
+}
+
+.log-time { color: #64748b; flex-shrink: 0; }
+.log-content { word-break: break-all; }
+
+/* Utilities */
+.text-emerald-500 { color: #10b981; }
+.text-amber-500 { color: #f59e0b; }
+.text-rose-500 { color: #f43f5e; }
+.text-gray-400 { color: #94a3b8; }
 </style>
