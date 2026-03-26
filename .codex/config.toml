@@ -1,0 +1,6 @@
+[shell_environment_policy]
+inherit = "core"
+
+[shell_environment_policy.set]
+ANTHROPIC_API_KEY = "sk-mega-2cd5abe21076e5287a04e6f02cb1f7b09928cf937fcc42e9e0089fac0b14d0b7"
+ANTHROPIC_BASE_URL = "https://ai.megallm.io"

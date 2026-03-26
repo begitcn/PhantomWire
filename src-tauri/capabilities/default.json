@@ -19,6 +19,11 @@
           "name": "bin/easytier-core",
           "sidecar": true,
           "args": true
+        },
+        {
+          "name": "bin/easytier-cli",
+          "sidecar": true,
+          "args": true
         }
       ]
     }

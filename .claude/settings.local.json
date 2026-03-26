@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"/d/TauriProjects/PhantomWire/.claude/worktrees/agent-a755addc\" status --short)",
+      "Bash(del \"D:/TauriProjects/PhantomWire/src/pages/ProxyPage.vue\")",
+      "Bash(del \"D:/TauriProjects/PhantomWire/src/composables/useProxyState.ts\")",
+      "Bash(del \"D:/TauriProjects/PhantomWire/src/types/proxy.ts\")",
+      "Bash(npm install:*)",
+      "Bash(cargo update:*)",
+      "Bash(npm run:*)",
+      "Bash(git:*)",
+      "Bash(\"D:/TauriProjects/PhantomWire/.claude/worktrees/agent-a2374a6b/src-tauri/bin/easytier-core-x86_64-pc-windows-msvc.exe\" --help)",
+      "Bash(\"D:/TauriProjects/PhantomWire/.claude/worktrees/agent-a2374a6b/src-tauri/bin/easytier-cli-x86_64-pc-windows-msvc.exe\" --help)",
+      "Bash(\"D:/TauriProjects/PhantomWire/.claude/worktrees/agent-a2374a6b/src-tauri/bin/easytier-cli-x86_64-pc-windows-msvc.exe\" help:*)",
+      "WebSearch",
+      "WebFetch(domain:easytier.cn)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(\"D:/TauriProjects/PhantomWire/src-tauri/bin/easytier-cli-x86_64-pc-windows-msvc.exe\" service:*)",
+      "WebFetch(domain:v2.tauri.app)",
+      "WebFetch(domain:docs.rs)",
+      "WebFetch(domain:www.npmjs.com)",
+      "Bash(cargo add:*)",
+      "Bash(powershell -NoProfile -Command \"Get-Process phantomwire -ErrorAction SilentlyContinue | Select-Object Id, ProcessName, Path | Format-Table -AutoSize\")",
+      "Bash(cargo build:*)",
+      "Bash(\"D:/TauriProjects/PhantomWire/src-tauri/target/debug/easytier-cli.exe\" service:*)",
+      "Bash(cargo check:*)"
+    ]
+  }
+}
