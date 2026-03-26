@@ -46,6 +46,10 @@ export type ETPeerEntry = {
   raw: any;
 };
 
+export type DisplayPeerEntry = ETPeerEntry & {
+  peerKey: string;
+};
+
 function newId() {
   return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
@@ -70,6 +74,17 @@ function normalizeLabel(label: string) {
 
 function resolveDisplayName(profile: Pick<NetworkProfile, 'label' | 'config'>) {
   return normalizeLabel(profile.label) || normalizeLabel(profile.config.network_name) || '未命名网络';
+}
+
+function peerIdentityOf(peer: ETPeerEntry) {
+  return [
+    (peer.hostname || '').trim().toLowerCase(),
+    peer.ipv4 || '',
+    peer.ipv6 || '',
+    peer.cidr || '',
+    peer.tunnel_proto || '',
+    peer.version || '',
+  ].join('|');
 }
 
 function loadNetworks(): NetworkProfile[] {
@@ -131,7 +146,7 @@ export function useNetworkState() {
   const peers = ref<ETPeerEntry[]>([]);
   const peersLoading = ref(false);
   const peersError = ref<string | null>(null);
-  const expandedPeerIndex = ref<number | null>(null);
+  const expandedPeerKey = ref<string | null>(null);
   const copiedHint = ref<string | null>(null);
   const editingId = ref<string | null>(null);
   const editingLabel = ref('');
@@ -210,7 +225,7 @@ export function useNetworkState() {
     return (peer.hostname || '').trim().toLowerCase() === 'local';
   }
 
-  const displayPeers = computed(() => {
+  const displayPeers = computed<DisplayPeerEntry[]>(() => {
     const list = [...peers.value];
     list.sort((left, right) => {
       const leftLocal = isLocalPeer(left);
@@ -229,11 +244,15 @@ export function useNetworkState() {
       }
       return (left.hostname || '').localeCompare(right.hostname || '');
     });
-    return list;
+    return list.map((peer) => ({
+      ...peer,
+      peerKey: peerIdentityOf(peer),
+    }));
   });
 
   async function refreshPeers() {
     if (!isRunning.value) {
+      expandedPeerKey.value = null;
       peers.value = [];
       peersError.value = null;
       return;
@@ -251,8 +270,8 @@ export function useNetworkState() {
     }
   }
 
-  function togglePeerDetails(index: number) {
-    expandedPeerIndex.value = expandedPeerIndex.value === index ? null : index;
+  function togglePeerDetails(peerKey: string) {
+    expandedPeerKey.value = expandedPeerKey.value === peerKey ? null : peerKey;
   }
 
   async function copyText(text: string) {
@@ -356,8 +375,15 @@ export function useNetworkState() {
   }, { deep: true });
 
   watch(selectedId, () => {
+    expandedPeerKey.value = null;
     isRunning.value = !!runningById[selectedId.value];
     scrollLogsToBottom();
+  });
+
+  watch(displayPeers, (value) => {
+    if (expandedPeerKey.value && !value.some((peer) => peer.peerKey === expandedPeerKey.value)) {
+      expandedPeerKey.value = null;
+    }
   });
 
   watch([selectedId, isRunning, activeTab], () => {
@@ -437,7 +463,7 @@ export function useNetworkState() {
     displayPeers,
     editingId,
     editingLabel,
-    expandedPeerIndex,
+    expandedPeerKey,
     finishEdit,
     getLatencyColor,
     isLocalPeer,

@@ -23,7 +23,8 @@
       "Bash(powershell -NoProfile -Command \"Get-Process phantomwire -ErrorAction SilentlyContinue | Select-Object Id, ProcessName, Path | Format-Table -AutoSize\")",
       "Bash(cargo build:*)",
       "Bash(\"D:/TauriProjects/PhantomWire/src-tauri/target/debug/easytier-cli.exe\" service:*)",
-      "Bash(cargo check:*)"
+      "Bash(cargo check:*)",
+      "Bash(cargo test:*)"
     ]
   }
 }
